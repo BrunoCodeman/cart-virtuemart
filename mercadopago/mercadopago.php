@@ -540,8 +540,109 @@ class plgVmPaymentMercadoPago extends vmPSPlugin {
 	return true;
 }
 
-function postTicketPaymentV1(){
+function postTicketPaymentV1($cart, $order, $payment_method){
 
+		// DELETE
+		require(VMPATH_ROOT . DS.'plugins'.DS.'vmpayment'.DS.'mercadopago'.DS.'mercadopago'.DS.'lib'.DS.'test.php');
+
+		$this->logInfo('--------------------------------------', 'debug');
+		$this->logInfo('Post Payment V1', 'debug');
+
+		$params = vRequest::getVar('mercadopago_custom');
+
+		$this->logInfo('PARAMS: ' . json_encode($params), 'debug');
+
+
+		$payment = array();
+
+		$payment['transaction_amount'] = (float) number_format($params['amount'],2);
+		$payment['description'] = "Loja teste 12345";
+		$payment['payment_method_id'] = $params['paymentMethodId'];
+		$payment['payment_type_id'] = "ticket";
+		$payment['external_reference'] = $order['details']['BT']->virtuemart_order_id;
+
+		$payment['statement_descriptor'] = $payment_method->mercadopago_statement_descriptor;
+
+		$notification_url = JURI::root() . "index.php?option=com_virtuemart&view=pluginresponse&task=pluginnotification&mercadopago_type_integration=custom&payment_method_id=" . $cart->virtuemart_paymentmethod_id;
+
+		if(strpos($notification_url, "localhost") === false){
+			$payment['notification_url'] = $notification_url;
+		}
+
+		$payment['installments'] = (int) $params['installments'];
+		$tempInstallments = (int) $params['tempInstallments'];
+		//case user confirm purchase before mercadopagojs populate selector
+		if($payment['installments'] < 0 && $payment['installments'] != "" && $tempInstallments > -1){
+			$payment['installments'] = $tempInstallments;
+			$this->logInfo('added installment from the temporary params', 'debug');
+		}
+
+		$issuer = $params['issuer'];
+		if(isset($issuer) && $issuer != "" && $issuer > -1){
+			$payment['issuer_id'] = $issuer;
+		}
+
+		if($payment_method->mercadopago_auto_redirect == "true"){
+			$payment['binary_mode'] = true;
+		}
+
+		//case user confirm purchase before mercadopagojs populate selector
+		$tempIssuer = (int) $params['tempIssuer'];
+		if($issuer < 0 && $tempIssuer > -1){
+			$payment['issuer_id'] = $tempIssuer;
+			$this->logInfo('added issuer_id from the temporary params', 'debug');
+		}
+
+		//payer email
+		$payment['payer']['email'] = MercadoPagoTest::getEmailBuyerTest($params['site_id']);
+		// $payment['payer']['email'] = $order['details']['BT']->email;
+
+
+		// Additional Info
+		// Items Info
+		$payment['additional_info']['items'] = $this->getItemsFromCart($cart, $payment_method);
+
+
+		//Valida se existe telefone disponível
+		$phone = $this->getPhoneFromOrder($order);
+
+		// Payer Info
+		$payment['additional_info']['payer']['first_name'] = $order['details']['BT']->first_name;
+		$payment['additional_info']['payer']['last_name'] = $order['details']['BT']->last_name;
+		// $payment['additional_info']['payer']['registration_date'] = "2015-06-02T12:58:41.425-04:00";
+		// $payment['additional_info']['payer']['phone']['area_code'] = "11";
+		$payment['additional_info']['payer']['phone']['number'] = $phone;
+		$payment['additional_info']['payer']['address']['street_name'] = $order['details']['BT']->address_1 . " - " .  $order['details']['BT']->address_2 . " - " . $order['details']['BT']->city;
+		$payment['additional_info']['payer']['address']['zip_code'] = $order['details']['BT']->zip;
+		// $payment['additional_info']['payer']['address']['street_number'] = (int) 123;
+
+		$shipments = $this->getShipmentsFromOrder($order);
+
+		// Shipments Info
+		$payment['additional_info']['shipments']['receiver_address']['zip_code'] = $shipments->zip;
+		$payment['additional_info']['shipments']['receiver_address']['street_name'] = $shipments->address_1 . " " .  $shipments->address_2 . " - " . $shipments->city;
+		// $payment['additional_info']['shipments']['receiver_address']['street_number'] = (int) 123;
+		// $payment['additional_info']['shipments']['receiver_address']['floor'] = (int) "";
+		// $payment['additional_info']['shipments']['receiver_address']['apartment'] = "";
+
+		// Metadata
+		// $payment['metadata']['key'] = "value";
+		$this->logInfo('PARAMS TO POST: ' . json_encode($payment), 'debug');
+
+		$mercadopago = new MP(MercadoPagoTest::getAccessTokenSellerTest($params['site_id']));
+		$payment_result = $mercadopago->create_payment($payment);
+
+		$this->logInfo('RESULTO POST: ' . json_encode($payment_result), 'debug');
+		//empty car
+		// $this->emptyCart();
+
+		$html = $this->renderByLayout('mercadopago_custom_response',
+		array(
+			"payment" => $payment_result
+		)
+	);
+
+	JRequest::setVar('html', $html);
 	return true;
 }
 
